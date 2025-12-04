@@ -19,8 +19,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    shell_run();
-
+    shell_start();
     fat32_unmount();
 
     return 0;
