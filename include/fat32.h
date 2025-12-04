@@ -83,11 +83,22 @@ const char *fat32_get_cwd_name();
 bool fat32_cd(const char *dirname);
 void fat32_ls();
 
+// Create functions
+bool fat32_mkdir(const char *dirname);
+bool fat32_creat(const char *filename);
+
 // Helper functions
 uint32_t fat32_get_first_cluster(DirEntry_t *entry);
 uint32_t fat32_get_next_cluster(uint32_t cluster);
 uint32_t fat32_cluster_to_lba(uint32_t cluster);
 bool fat32_read_cluster(uint32_t cluster, void *buffer);
 DirEntry_t* fat32_find_entry(uint32_t dir_cluster, const char *name);
+
+uint32_t fat32_find_free_cluster(void);
+void fat32_set_fat_entry(uint32_t cluser, uint32_t value);
+uint32_t fat32_allocate_cluster(void);
+bool fat32_write_dir_entry(uint32_t dir_cluser, DirEntry_t *entry);
+void fat32_generate_short_name(const char *input, uint8_t out[11]);
+void fat32_zero_cluster(uint32_t cluster);
 
 #endif

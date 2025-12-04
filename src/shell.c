@@ -48,6 +48,24 @@ void shell_start()
                 fat32_cd(tokens->items[1]);
             }
         }
+		else if (strcmp(cmd, "mkdir") == 0){
+			if (tokens->size < 2) {
+				fprintf(stderr, "Error: must use a directory name with command mkdir\n");
+			} else {
+				if (!fat32_mkdir(tokens->items[1])) {
+					fprintf(stderr, "mkdir failed\n");
+				}
+			}
+		}
+		else if (strcmp(cmd, "creat") == 0) {
+			if (tokens->size < 2) {
+				fprintf(stderr, "Error: must use a file name with command creat\n");
+			} else {
+				if(!fat32_creat(tokens->items[1])) {
+					fprintf(stderr, "creat failed\n");
+				} 
+			}
+		}
         else {
             // Unknown commands
             printf("Unknown command: %s\n", cmd);

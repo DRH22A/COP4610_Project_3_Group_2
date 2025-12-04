@@ -1,5 +1,6 @@
 #include "fat32.h"
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 
 // Global variables
@@ -127,6 +128,77 @@ uint32_t fat32_get_next_cluster(uint32_t cluster) {
 uint32_t fat32_get_first_cluster(DirEntry_t *entry) {
     return ((uint32_t)entry->DIR_FstClusHI << 16) | entry->DIR_FstClusLO;
 }
+
+//
+void fat32_set_fat_entry(uint32_t cluster, uint32_t value) {
+	value &= 0x0FFFFFFF;
+
+	uint32_t fat_offset = cluster * 4;
+	uint32_t fat1_lba = bpb.BPB_RsvdSecCnt;
+	uint32_t fat1_byte_addr = fat1_lba * bpb.BPB_BytsPerSec + fat_offset;
+
+	fseek(image_fp, fat1_byte_addr, SEEK_SET);
+	fwrite(&value, sizeof(uint32_t), 1, image_fp);
+
+	uint32_t fat2_lba = bpb.BPB_RsvdSecCnt + bpb.BPB_FATSz32;
+	uint32_t fat2_byte_addr = fat2_lba * bpb.BPB_BytsPerSec + fat_offset;
+	fseek(image_fp, fat2_byte_addr, SEEK_SET);
+	fwrite(&value, sizeof(uint32_t), 1, image_fp);
+
+	fflush(image_fp);
+}
+
+// Update FAT entry in both FAT tables
+uint32_t fat32_find_free_cluster() {
+	uint32_t fat1_lba = bpb.BPB_RsvdSecCnt;
+	uint32_t fat_bytes = bpb.BPB_FATSz32 * bpb.BPB_BytsPerSec;
+
+	uint32_t total_entries = fat_bytes / 4;
+
+	for(uint32_t c = 2; c < total_entries; c++) {
+		uint32_t fat_offset = c * 4;
+		uint32_t fat_byte_addr = fat1_lba * bpb.BPB_BytsPerSec + fat_offset;
+
+		uint32_t value = 0;
+		fseek(image_fp, fat_byte_addr, SEEK_SET);
+		fread(&value, sizeof(uint32_t), 1, image_fp);
+
+		value &= 0x0FFFFFFF;
+		if(value == 0)
+			return c;
+	}
+
+	return 0;
+}
+
+// Set bytes of cluster to zero
+void fat32_zero_cluster(uint32_t cluster) {
+	uint32_t cluster_size = bpb.BPB_BytsPerSec * bpb.BPB_SecPerClus;
+	uint32_t lba = fat32_cluster_to_lba(cluster);
+	uint32_t byte_addr = lba * bpb.BPB_BytsPerSec;
+
+	uint8_t *zeros = calloc(1, cluster_size);
+	if(!zeros) return;
+
+	fseek(image_fp, byte_addr, SEEK_SET);
+	fwrite(zeros, 1, cluster_size, image_fp);
+
+	free(zeros);
+	fflush(image_fp);
+}
+
+// Allocates new cluster for file or directory usage
+uint32_t fat32_allocate_cluster() {
+	uint32_t free_cluster = fat32_find_free_cluster();
+	if(free_cluster == 0)
+		return 0;
+
+	fat32_set_fat_entry(free_cluster, FAT32_EOC);
+	fat32_zero_cluster(free_cluster);
+
+	return free_cluster;
+}
+
 
 // Compare FAT32 short name (11 bytes, space-padded) with a normal string
 bool compare_fat32_name(const uint8_t *fat_name, const char *regular_name) {
@@ -333,4 +405,170 @@ bool fat32_cd(const char *dirname)
     }
     
     return true;
+}
+
+
+// mkdir and creat functions (part3)
+
+void fat32_generate_short_name(const char *input, uint8_t out[11]) {
+	memset(out, ' ', 11);
+
+	const char *dot = strchr(input, '.');
+	int name_len = dot ? (dot - input) : strlen(input);
+	int ext_len = dot ? strlen(dot + 1) : 0;
+
+	for (int i = 0; i < name_len && i < 8; i++) {
+		char c = input[i];
+		if(c >= 'a' && c <= 'z')
+			c -= 32;
+		out[i] = c;
+	}
+
+	if (dot) {
+        const char *ext = dot + 1;
+        for(int i = 0; i < ext_len && i < 3; i++) {
+            char c = ext[i];
+            if(c >= 'a' && c <= 'z')
+                c -= 32;
+            out[8 + i] = c;
+        }
+    }
+}
+
+bool fat32_write_dir_entry(uint32_t dir_cluster, DirEntry_t *entry){
+	uint32_t cluster_size = bpb.BPB_BytsPerSec * bpb.BPB_SecPerClus;
+    uint8_t *cluster_buf = malloc(cluster_size);
+    if (!cluster_buf) return false;
+
+    uint32_t current = dir_cluster;
+
+    while(1) {
+        // Read directory cluster
+        if (!fat32_read_cluster(current, cluster_buf)) {
+            free(cluster_buf);
+            return false;
+        }
+
+        DirEntry_t *entries = (DirEntry_t *)cluster_buf;
+        uint32_t entries_per_cluster = cluster_size / sizeof(DirEntry_t);
+
+        // Search for free entry
+        for (uint32_t i = 0; i < entries_per_cluster; i++) {
+            if (entries[i].DIR_Name[0] == 0x00 || entries[i].DIR_Name[0] == 0xE5) {
+                
+                memcpy(&entries[i], entry, sizeof(DirEntry_t));
+
+                // Write buffer back to disk
+                uint32_t lba = fat32_cluster_to_lba(current);
+                fseek(image_fp, lba * bpb.BPB_BytsPerSec, SEEK_SET);
+                fwrite(cluster_buf, 1, cluster_size, image_fp);
+                fflush(image_fp);
+
+                free(cluster_buf);
+                return true;
+            }
+        }
+
+        uint32_t next = fat32_get_next_cluster(current);
+
+        if (next >= FAT32_EOC) {
+            // Allocate new directory cluster
+            uint32_t new_cluster = fat32_allocate_cluster();
+            if (new_cluster == 0) {
+                free(cluster_buf);
+                return false;
+            }
+
+            fat32_set_fat_entry(current, new_cluster);
+            fat32_set_fat_entry(new_cluster, FAT32_EOC);
+
+            // Write entry into new cluster
+            memset(cluster_buf, 0, cluster_size);
+            DirEntry_t *new_entries = (DirEntry_t *)cluster_buf;
+            memcpy(&new_entries[0], entry, sizeof(DirEntry_t));
+
+            uint32_t new_lba = fat32_cluster_to_lba(new_cluster);
+            fseek(image_fp, new_lba * bpb.BPB_BytsPerSec, SEEK_SET);
+            fwrite(cluster_buf, 1, cluster_size, image_fp);
+            fflush(image_fp);
+
+            free(cluster_buf);
+            return true;
+        }
+
+        current = next;
+    }
+}
+
+bool fat32_mkdir(const char *dirname) {
+    // Ensure no duplicates
+    if (fat32_find_entry(current_dir_cluster, dirname) != NULL) {
+        fprintf(stderr, "Error: '%s' already exists\n", dirname);
+        return false;
+    }
+
+    // Allocate cluster for new directory
+    uint32_t new_cluster = fat32_allocate_cluster();
+    if (new_cluster == 0) {
+        fprintf(stderr, "Error: could not allocate cluster\n");
+        return false;
+    }
+
+    // Create "." and ".." entries inside the new directory
+    uint32_t cluster_size = bpb.BPB_BytsPerSec * bpb.BPB_SecPerClus;
+    uint8_t *buffer = calloc(1, cluster_size);
+    if (!buffer) return false;
+
+    DirEntry_t *entries = (DirEntry_t *)buffer;
+
+    memset(&entries[0], 0, sizeof(DirEntry_t));
+    memcpy(entries[0].DIR_Name, ".          ", 11);
+    entries[0].DIR_Attr = ATTR_DIRECTORY;
+    entries[0].DIR_FstClusLO = new_cluster & 0xFFFF;
+    entries[0].DIR_FstClusHI = (new_cluster >> 16) & 0xFFFF;
+    memset(&entries[1], 0, sizeof(DirEntry_t));
+    memcpy(entries[1].DIR_Name, "..         ", 11);
+    entries[1].DIR_Attr = ATTR_DIRECTORY;
+    uint32_t parent_cluster = current_dir_cluster;
+    entries[1].DIR_FstClusLO = parent_cluster & 0xFFFF;
+    entries[1].DIR_FstClusHI = (parent_cluster >> 16) & 0xFFFF;
+
+    // Write the new directory contents
+    uint32_t lba = fat32_cluster_to_lba(new_cluster);
+    fseek(image_fp, lba * bpb.BPB_BytsPerSec, SEEK_SET);
+    fwrite(buffer, 1, cluster_size, image_fp);
+    fflush(image_fp);
+    free(buffer);
+
+    // Create directory entry in parent directory
+    DirEntry_t new_entry;
+    memset(&new_entry, 0, sizeof(new_entry));
+
+    fat32_generate_short_name(dirname, new_entry.DIR_Name);
+
+    new_entry.DIR_Attr = ATTR_DIRECTORY;
+    new_entry.DIR_FstClusLO = new_cluster & 0xFFFF;
+    new_entry.DIR_FstClusHI = (new_cluster >> 16) & 0xFFFF;
+    new_entry.DIR_FileSize = 0;
+
+    return fat32_write_dir_entry(current_dir_cluster, &new_entry);
+}
+
+bool fat32_creat(const char *filename) {
+    if (fat32_find_entry(current_dir_cluster, filename) != NULL) {
+        fprintf(stderr, "Error: '%s' already exists\n", filename);
+        return false;
+    }
+
+    DirEntry_t new_entry;
+    memset(&new_entry, 0, sizeof(new_entry));
+
+    fat32_generate_short_name(filename, new_entry.DIR_Name);
+
+    new_entry.DIR_Attr = ATTR_ARCHIVE;
+    new_entry.DIR_FstClusLO = 0;
+    new_entry.DIR_FstClusHI = 0;
+    new_entry.DIR_FileSize = 0;
+
+    return fat32_write_dir_entry(current_dir_cluster, &new_entry);
 }
