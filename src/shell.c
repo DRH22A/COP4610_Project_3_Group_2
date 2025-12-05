@@ -151,6 +151,18 @@ void shell_start()
                 }
             }
         }
+        else if (strcmp(cmd, "write") == 0) {
+            if (tokens->size < 3) {
+                fprintf(stderr, "Error: usage: write [FILENAME] [STRING]\n");
+            } else {
+                // The string token is already parsed without quotes by get_tokens in lexer.c
+                // But we need to verify if the user provided a quoted string as requested.
+                // The lexer handles quotes, so tokens->items[2] should be the string content.
+                if (!fat32_write(tokens->items[1], tokens->items[2])) {
+                    fprintf(stderr, "write failed\n");
+                }
+            }
+        }
         else {
             // Unknown commands
             printf("Unknown command: %s\n", cmd);

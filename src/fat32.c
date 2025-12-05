@@ -1153,3 +1153,107 @@ bool fat32_read(const char *filename, uint32_t size) {
     
     return true;
 }
+
+// Write to a file
+bool fat32_write(const char *filename, const char *data) {
+    // 1. Find open file
+    OpenFile *file = find_open_file(filename);
+    if (!file) {
+        fprintf(stderr, "Error: File '%s' is not open\n", filename);
+        return false;
+    }
+
+    // 2. Check mode
+    if (file->mode != MODE_WRITE && file->mode != MODE_READ_WRITE) {
+        fprintf(stderr, "Error: File '%s' is not open for writing\n", filename);
+        return false;
+    }
+
+    uint32_t len = strlen(data);
+    if (len == 0) return true;
+
+    uint32_t cluster_size = bpb.BPB_BytsPerSec * bpb.BPB_SecPerClus;
+
+    // Handle empty file (first_cluster == 0)
+    if (file->first_cluster == 0) {
+        file->first_cluster = fat32_allocate_cluster();
+        if (file->first_cluster == 0) {
+            fprintf(stderr, "Error: Disk full\n");
+            return false;
+        }
+    }
+
+    uint32_t bytes_written = 0;
+    uint32_t current_cluster = file->first_cluster;
+    
+    uint32_t clusters_to_skip = file->offset / cluster_size;
+    uint32_t cluster_offset = file->offset % cluster_size;
+
+    for(uint32_t i=0; i<clusters_to_skip; i++) {
+        uint32_t next = fat32_get_next_cluster(current_cluster);
+        if (next >= FAT32_EOC) {
+            uint32_t new_cluster = fat32_allocate_cluster();
+            if (new_cluster == 0) return false;
+            fat32_set_fat_entry(current_cluster, new_cluster);
+            current_cluster = new_cluster;
+        } else {
+            current_cluster = next;
+        }
+    }
+
+    while (bytes_written < len) {
+        uint32_t lba = fat32_cluster_to_lba(current_cluster);
+        uint32_t write_pos = lba * bpb.BPB_BytsPerSec + cluster_offset;
+        
+        uint32_t space_in_cluster = cluster_size - cluster_offset;
+        uint32_t amount = (len - bytes_written < space_in_cluster) ? (len - bytes_written) : space_in_cluster;
+        
+        fseek(image_fp, write_pos, SEEK_SET);
+        fwrite(data + bytes_written, 1, amount, image_fp);
+        fflush(image_fp);
+        
+        bytes_written += amount;
+        cluster_offset += amount;
+        
+        if (cluster_offset >= cluster_size && bytes_written < len) {
+            // Need next cluster
+            uint32_t next = fat32_get_next_cluster(current_cluster);
+            if (next >= FAT32_EOC) {
+                uint32_t new_cluster = fat32_allocate_cluster();
+                if (new_cluster == 0) {
+                    fprintf(stderr, "Error: Disk full\n");
+                    break;
+                }
+                fat32_set_fat_entry(current_cluster, new_cluster);
+                current_cluster = new_cluster;
+            } else {
+                current_cluster = next;
+            }
+            cluster_offset = 0;
+        }
+    }
+
+    // Update offset
+    file->offset += bytes_written;
+    
+    // Update size if extended
+    if (file->offset > file->size) {
+        file->size = file->offset;
+        
+        // Update directory entry
+        uint32_t dir_clus, dir_offset;
+        DirEntry_t entry;
+        if (fat32_find_entry_info(current_dir_cluster, filename, &entry, &dir_clus, &dir_offset)) {
+            entry.DIR_FileSize = file->size;
+            entry.DIR_FstClusHI = (file->first_cluster >> 16) & 0xFFFF;
+            entry.DIR_FstClusLO = file->first_cluster & 0xFFFF;
+            
+            uint32_t ent_lba = fat32_cluster_to_lba(dir_clus);
+            fseek(image_fp, ent_lba * bpb.BPB_BytsPerSec + dir_offset, SEEK_SET);
+            fwrite(&entry, sizeof(DirEntry_t), 1, image_fp);
+            fflush(image_fp);
+        }
+    }
+
+    return true;
+}

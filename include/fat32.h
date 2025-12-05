@@ -114,6 +114,7 @@ bool fat32_rmdir(const char *dirname);
 
 // Update functions
 bool fat32_mv(const char *src, const char *dest);
+bool fat32_write(const char *filename, const char *data);
 
 // Read functions
 void fat32_init_open_files(void);
