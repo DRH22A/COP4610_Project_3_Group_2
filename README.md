@@ -7,7 +7,7 @@ Our project also possess a comprehensive understanding of the fundamental comman
 ## Group Members
 - **Daniel Halterman**: drh22a@fsu.edu
 - **Ryan Kurfirst**: rsk22a@fsu.edu
-- **Alex Brown**: ab19@fsu.edu
+- **Caleb Dindinger**: ab19@fsu.edu
 ## Division of Labor
 
 ### Part 1: Mounting the Image
@@ -20,7 +20,7 @@ Our project also possess a comprehensive understanding of the fundamental comman
 
 ### Part 3: Create
 - **Responsibilities**: [Description]
-- **Assigned to**: Alex Brown
+- **Assigned to**: Caleb Dindinger
 
 ### Part 4: Read
 - **Responsibilities**: [Description]
