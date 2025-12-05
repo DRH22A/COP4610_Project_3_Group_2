@@ -6,8 +6,8 @@ Our project also possess a comprehensive understanding of the fundamental comman
 
 ## Group Members
 - **Daniel Halterman**: drh22a@fsu.edu
-- **Jane Smith**: js19@fsu.edu
-- **Alex Brown**: ab19@fsu.edu
+- **Ryan Kurfirst**: rsk22a@fsu.edu
+- **Caleb Dindinger**: ab19@fsu.edu
 ## Division of Labor
 
 ### Part 1: Mounting the Image
@@ -19,8 +19,8 @@ Our project also possess a comprehensive understanding of the fundamental comman
 - **Assigned to**: Daniel Halterman
 
 ### Part 3: Create
-- **Responsibilities**: [Description]
-- **Assigned to**: Alex Brown
+- **Responsibilities**: Implemented the mkdir cmd and the creat cmd
+- **Assigned to**: Caleb Dindinger
 
 ### Part 4: Read
 - **Responsibilities**: [Description]
@@ -28,11 +28,11 @@ Our project also possess a comprehensive understanding of the fundamental comman
 
 ### Part 5: Update
 - **Responsibilities**: [Description]
-- **Assigned to**: Alex Brown, Jane Smith
+- **Assigned to**: Ryan Kurfirst
 
 ### Part 6: Delete
 - **Responsibilities**: [Description]
-- **Assigned to**: Jane Smith
+- **Assigned to**: Ryan Kurfirst
 
 ### Extra Credit
 - **Responsibilities**: [Description]

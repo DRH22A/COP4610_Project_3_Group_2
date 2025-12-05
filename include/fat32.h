@@ -108,6 +108,13 @@ void fat32_ls();
 bool fat32_mkdir(const char *dirname);
 bool fat32_creat(const char *filename);
 
+// Delete functions
+bool fat32_rm(const char *filename);
+bool fat32_rmdir(const char *dirname);
+
+// Update functions
+bool fat32_mv(const char *src, const char *dest);
+
 // Read functions
 void fat32_init_open_files(void);
 bool fat32_open(const char *filename, const char *flags);
@@ -129,5 +136,6 @@ uint32_t fat32_allocate_cluster(void);
 bool fat32_write_dir_entry(uint32_t dir_cluser, DirEntry_t *entry);
 void fat32_generate_short_name(const char *input, uint8_t out[11]);
 void fat32_zero_cluster(uint32_t cluster);
+bool compare_fat32_name(const uint8_t *fat_name, const char *regular_name);
 
 #endif
