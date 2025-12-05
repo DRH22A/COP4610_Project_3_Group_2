@@ -127,8 +127,11 @@ bool fat32_read(const char *filename, uint32_t size);
 uint32_t fat32_get_first_cluster(DirEntry_t *entry);
 uint32_t fat32_get_next_cluster(uint32_t cluster);
 uint32_t fat32_cluster_to_lba(uint32_t cluster);
+bool fat32_find_entry_info(uint32_t dir_cluster, const char *name, DirEntry_t *out_entry, uint32_t *out_dir_clus, uint32_t *out_offset);
+void fat32_free_chain(uint32_t start_cluster);
 bool fat32_read_cluster(uint32_t cluster, void *buffer);
 DirEntry_t* fat32_find_entry(uint32_t dir_cluster, const char *name);
+
 
 uint32_t fat32_find_free_cluster(void);
 void fat32_set_fat_entry(uint32_t cluser, uint32_t value);

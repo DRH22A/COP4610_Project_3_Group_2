@@ -716,6 +716,253 @@ bool fat32_close(const char *filename) {
     return false;
 }
 
+// Helper: Find entry and also return directory cluster and offset
+bool fat32_find_entry_info(uint32_t dir_cluster, const char *name, 
+                           DirEntry_t *out_entry, uint32_t *out_dir_clus, 
+                           uint32_t *out_offset) {
+    uint32_t cluster_size = bpb.BPB_BytsPerSec * bpb.BPB_SecPerClus;
+    uint8_t *cluster_buffer = malloc(cluster_size);
+    if (!cluster_buffer) return false;
+    
+    uint32_t current_cluster = dir_cluster;
+    
+    while (current_cluster < FAT32_EOC) {
+        if (!fat32_read_cluster(current_cluster, cluster_buffer)) {
+            free(cluster_buffer);
+            return false;
+        }
+        
+        uint32_t entries_per_cluster = cluster_size / sizeof(DirEntry_t);
+        DirEntry_t *entries = (DirEntry_t *)cluster_buffer;
+        
+        for (uint32_t i = 0; i < entries_per_cluster; i++) {
+            // 0x00 means end of directory
+            if (entries[i].DIR_Name[0] == 0x00) {
+                free(cluster_buffer);
+                return false;
+            }
+            
+            // 0xE5 means deleted entry
+            if (entries[i].DIR_Name[0] == 0xE5)
+                continue;
+            
+            // Skip long name entries
+            if ((entries[i].DIR_Attr & ATTR_LONG_NAME) == ATTR_LONG_NAME)
+                continue;
+            
+            // Skip volume labels
+            if (entries[i].DIR_Attr & ATTR_VOLUME_ID)
+                continue;
+            
+            // Check if the name matches
+            if (compare_fat32_name(entries[i].DIR_Name, name)) {
+                memcpy(out_entry, &entries[i], sizeof(DirEntry_t));
+                *out_dir_clus = current_cluster;
+                *out_offset = i * sizeof(DirEntry_t);
+                
+                free(cluster_buffer);
+                return true;
+            }
+        }
+        // Move to the next cluster
+        current_cluster = fat32_get_next_cluster(current_cluster);
+    }
+    
+    free(cluster_buffer);
+    return false;
+}
+
+// Helper: Free a cluster chain in the FAT
+void fat32_free_chain(uint32_t start_cluster) {
+    uint32_t current = start_cluster;
+    
+    while (current < FAT32_EOC && current != 0) {
+        uint32_t next = fat32_get_next_cluster(current);
+        fat32_set_fat_entry(current, 0);  // Mark as free
+        current = next;
+    }
+}
+
+
+// Move/Rename a file or directory
+bool fat32_mv(const char *src, const char *dest) {
+    // 1. Check if source exists
+    uint32_t src_dir_clus, src_offset;
+    DirEntry_t src_entry;
+    if(!fat32_find_entry_info(current_dir_cluster, src, &src_entry, &src_dir_clus, &src_offset)) {
+        fprintf(stderr, "Error: Source file/directory not found\n");
+        return false;
+    }
+    
+    // 2. Check if destination is a directory (Move into)
+    uint32_t dest_dir_clus = 0, dest_offset = 0;
+    DirEntry_t dest_entry;
+    bool dest_exists = fat32_find_entry_info(current_dir_cluster, dest, &dest_entry, &dest_dir_clus, &dest_offset);
+    
+    if(dest_exists) {
+        if(dest_entry.DIR_Attr & ATTR_DIRECTORY) {
+            // Move 'src' INTO 'dest' directory
+            uint32_t target_dir_cluster = fat32_get_first_cluster(&dest_entry);
+            
+            // Check if file with same name exists in target dir
+            if(fat32_find_entry(target_dir_cluster, src) != NULL) {
+                fprintf(stderr, "Error: File with same name exists in destination\n");
+                return false;
+            }
+            
+            // Write entry to new directory
+            if(!fat32_write_dir_entry(target_dir_cluster, &src_entry)) {
+                fprintf(stderr, "Error: Failed to write to destination directory\n");
+                return false;
+            }
+            
+            // If it was a directory, we need to update its ".." entry to point to the new parent
+            if (src_entry.DIR_Attr & ATTR_DIRECTORY) {
+                uint32_t src_first_cluster = fat32_get_first_cluster(&src_entry);
+                uint32_t cluster_size = bpb.BPB_BytsPerSec * bpb.BPB_SecPerClus;
+                uint8_t *buf = malloc(cluster_size);
+                if (buf && fat32_read_cluster(src_first_cluster, buf)) {
+                    DirEntry_t *entries = (DirEntry_t*)buf;
+                    // Entry 1 is ".."
+                    entries[1].DIR_FstClusLO = target_dir_cluster & 0xFFFF;
+                    entries[1].DIR_FstClusHI = (target_dir_cluster >> 16) & 0xFFFF;
+                    
+                    // Write back
+                    uint32_t lba = fat32_cluster_to_lba(src_first_cluster);
+                    fseek(image_fp, lba * bpb.BPB_BytsPerSec, SEEK_SET);
+                    fwrite(buf, 1, cluster_size, image_fp);
+                    fflush(image_fp);
+                }
+                if(buf) free(buf);
+            }
+            
+            // Delete original entry (mark 0xE5)
+            uint8_t byte = 0xE5;
+            uint32_t lba = fat32_cluster_to_lba(src_dir_clus);
+            fseek(image_fp, lba * bpb.BPB_BytsPerSec + src_offset, SEEK_SET);
+            fwrite(&byte, 1, 1, image_fp);
+            fflush(image_fp);
+            
+            return true;
+        } else {
+            fprintf(stderr, "Error: Destination already exists and is a file\n");
+            return false;
+        }
+    } else {
+        // 3. Rename (Same directory, new name)
+        // Update name in entry structure
+        fat32_generate_short_name(dest, src_entry.DIR_Name);
+        
+        // Write new entry (in current dir)
+        if(!fat32_write_dir_entry(current_dir_cluster, &src_entry)) {
+             fprintf(stderr, "Error: Failed to write new entry\n");
+             return false;
+        }
+        
+        // Delete old entry
+        uint8_t byte = 0xE5;
+        uint32_t lba = fat32_cluster_to_lba(src_dir_clus);
+        fseek(image_fp, lba * bpb.BPB_BytsPerSec + src_offset, SEEK_SET);
+        fwrite(&byte, 1, 1, image_fp);
+        fflush(image_fp);
+        
+        return true;
+    }
+}
+
+// Delete a file
+bool fat32_rm(const char *filename) {
+    // Note: 'open' command not implemented yet, so skipping check if file is open
+    
+    uint32_t dir_clus, offset;
+    DirEntry_t entry;
+    if(!fat32_find_entry_info(current_dir_cluster, filename, &entry, &dir_clus, &offset)) {
+        fprintf(stderr, "Error: File not found\n");
+        return false;
+    }
+    
+    if(entry.DIR_Attr & ATTR_DIRECTORY) {
+        fprintf(stderr, "Error: Is a directory\n");
+        return false;
+    }
+    
+    // Mark as deleted
+    uint8_t byte = 0xE5;
+    uint32_t lba = fat32_cluster_to_lba(dir_clus);
+    fseek(image_fp, lba * bpb.BPB_BytsPerSec + offset, SEEK_SET);
+    fwrite(&byte, 1, 1, image_fp);
+    fflush(image_fp);
+    
+    // Free chain
+    uint32_t first_cluster = fat32_get_first_cluster(&entry);
+    if(first_cluster != 0) {
+        fat32_free_chain(first_cluster);
+    }
+    
+    return true;
+}
+
+// Remove a directory
+bool fat32_rmdir(const char *dirname) {
+    uint32_t dir_clus, offset;
+    DirEntry_t entry;
+    if(!fat32_find_entry_info(current_dir_cluster, dirname, &entry, &dir_clus, &offset)) {
+        fprintf(stderr, "Error: Directory not found\n");
+        return false;
+    }
+    
+    if(!(entry.DIR_Attr & ATTR_DIRECTORY)) {
+        fprintf(stderr, "Error: Not a directory\n");
+        return false;
+    }
+    
+    uint32_t target_dir_first_cluster = fat32_get_first_cluster(&entry);
+    
+    // Check if empty
+    uint32_t cluster_size = bpb.BPB_BytsPerSec * bpb.BPB_SecPerClus;
+    uint8_t *buffer = malloc(cluster_size);
+    uint32_t current = target_dir_first_cluster;
+    bool is_empty = true;
+    
+    while(current < FAT32_EOC && is_empty) {
+        if(!fat32_read_cluster(current, buffer)) {
+             free(buffer); return false;
+        }
+        DirEntry_t *ents = (DirEntry_t*)buffer;
+        int ent_count = cluster_size / sizeof(DirEntry_t);
+        for(int j=0; j<ent_count; j++) {
+            if(ents[j].DIR_Name[0] == 0x00) break;
+            if(ents[j].DIR_Name[0] == 0xE5) continue;
+             
+             // Ignore "." and ".."
+             if(strncmp((char*)ents[j].DIR_Name, ".          ", 11) == 0) continue;
+             if(strncmp((char*)ents[j].DIR_Name, "..         ", 11) == 0) continue;
+             
+             is_empty = false;
+             break;
+        }
+        current = fat32_get_next_cluster(current);
+    }
+    free(buffer);
+    
+    if(!is_empty) {
+        fprintf(stderr, "Error: Directory not empty\n");
+        return false;
+    }
+    
+    // Delete entry
+    uint8_t byte = 0xE5;
+    uint32_t lba = fat32_cluster_to_lba(dir_clus);
+    fseek(image_fp, lba * bpb.BPB_BytsPerSec + offset, SEEK_SET);
+    fwrite(&byte, 1, 1, image_fp);
+    fflush(image_fp);
+    
+    // Free chain
+    fat32_free_chain(target_dir_first_cluster);
+    
+    return true;
+}
+
 // lsof
 // Lists all opened files
 void fat32_lsof(void) {
