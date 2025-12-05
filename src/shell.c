@@ -84,6 +84,15 @@ void shell_start()
                 }
             }
         }
+        else if (strcmp(cmd, "mv") == 0) {
+            if (tokens->size < 3) {
+                fprintf(stderr, "Error: usage: mv [FILENAME/DIRNAME] [NEW_FILENAME/DIRECTORY]\n");
+            } else {
+                if (!fat32_mv(tokens->items[1], tokens->items[2])) {
+                    fprintf(stderr, "mv failed\n");
+                }
+            }
+        }
         else {
             // Unknown commands
             printf("Unknown command: %s\n", cmd);

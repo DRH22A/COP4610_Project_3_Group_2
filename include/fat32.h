@@ -91,6 +91,9 @@ bool fat32_creat(const char *filename);
 bool fat32_rm(const char *filename);
 bool fat32_rmdir(const char *dirname);
 
+// Update functions
+bool fat32_mv(const char *src, const char *dest);
+
 // Helper functions
 uint32_t fat32_get_first_cluster(DirEntry_t *entry);
 uint32_t fat32_get_next_cluster(uint32_t cluster);
