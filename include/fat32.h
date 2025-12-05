@@ -68,6 +68,27 @@ typedef struct {
 #define FAT32_EOC       0x0FFFFFF8  // End of cluster chain
 #define FAT32_BAD       0x0FFFFFF7  // Bad cluster
 
+// Maximum open files
+#define MAX_OPEN_FILES 10
+
+// File open modes
+typedef enum {
+    MODE_READ = 1,
+    MODE_WRITE = 2,
+    MODE_READ_WRITE = 3
+} FileMode;
+
+// Structure to track opened files
+typedef struct {
+    char filename[12];       // Display name
+    FileMode mode;           // Access mode
+    uint32_t offset;         // Current position
+    uint32_t size;           // File size
+    uint32_t first_cluster;  // Starting cluster
+    char path[256];          // Path where opened
+    int in_use;              // Is slot active
+} OpenFile;
+
 // Globals
 extern FILE *image_fp;
 extern BPB_t bpb;
@@ -86,6 +107,14 @@ void fat32_ls();
 // Create functions
 bool fat32_mkdir(const char *dirname);
 bool fat32_creat(const char *filename);
+
+// Read functions
+void fat32_init_open_files(void);
+bool fat32_open(const char *filename, const char *flags);
+bool fat32_close(const char *filename);
+void fat32_lsof(void);
+bool fat32_lseek(const char *filename, uint32_t offset);
+bool fat32_read(const char *filename, uint32_t size);
 
 // Helper functions
 uint32_t fat32_get_first_cluster(DirEntry_t *entry);

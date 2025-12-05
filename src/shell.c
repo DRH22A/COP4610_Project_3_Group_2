@@ -1,6 +1,7 @@
 #include "lexer.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "fat32.h"
 #include "shell.h"
 
@@ -64,6 +65,62 @@ void shell_start()
 				if(!fat32_creat(tokens->items[1])) {
 					fprintf(stderr, "creat failed\n");
 				} 
+			}
+		}
+		// Read commands
+		else if (strcmp(cmd, "open") == 0) {
+			if (tokens->size < 3) {
+				fprintf(stderr, "Error: open requires FILENAME and FLAGS\n");
+			} else {
+				if (!fat32_open(tokens->items[1], tokens->items[2])) {
+					fprintf(stderr, "open failed\n");
+				}
+			}
+		}
+		else if (strcmp(cmd, "close") == 0) {
+			if (tokens->size < 2) {
+				fprintf(stderr, "Error: close requires FILENAME\n");
+			} else {
+				if (!fat32_close(tokens->items[1])) {
+					fprintf(stderr, "close failed\n");
+				}
+			}
+		}
+		else if (strcmp(cmd, "lsof") == 0) {
+			fat32_lsof();
+		}
+		else if (strcmp(cmd, "lseek") == 0) {
+			if (tokens->size < 3) {
+				fprintf(stderr, "Error: lseek requires FILENAME and OFFSET\n");
+			} else {
+				// Parse offset - handle potential errors
+				char *endptr;
+				long offset_long = strtol(tokens->items[2], &endptr, 10);
+				if (*endptr != '\0' || offset_long < 0) {
+					fprintf(stderr, "Error: Invalid offset '%s'\n", tokens->items[2]);
+				} else {
+					uint32_t offset = (uint32_t)offset_long;
+					if (!fat32_lseek(tokens->items[1], offset)) {
+						fprintf(stderr, "lseek failed\n");
+					}
+				}
+			}
+		}
+		else if (strcmp(cmd, "read") == 0) {
+			if (tokens->size < 3) {
+				fprintf(stderr, "Error: read requires FILENAME and SIZE\n");
+			} else {
+				// Parse size - handle potential errors
+				char *endptr;
+				long size_long = strtol(tokens->items[2], &endptr, 10);
+				if (*endptr != '\0' || size_long <= 0) {
+					fprintf(stderr, "Error: Invalid size '%s'\n", tokens->items[2]);
+				} else {
+					uint32_t size = (uint32_t)size_long;
+					if (!fat32_read(tokens->items[1], size)) {
+						fprintf(stderr, "read failed\n");
+					}
+				}
 			}
 		}
         else {

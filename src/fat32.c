@@ -9,8 +9,11 @@ BPB_t bpb;
 
 // These are variable names for the shell prompt to keep track of
 static char loaded_image_name[256] = {0};
-static char cwd_name[256] = "/";
-static uint32_t current_dir_cluster = 0;
+char cwd_name[256] = "/";
+uint32_t current_dir_cluster = 0;
+
+// Global array for tracking open files
+static OpenFile open_files[MAX_OPEN_FILES];
 
 // Mount image
 bool fat32_mount(const char *filename)
@@ -39,6 +42,8 @@ bool fat32_mount(const char *filename)
     current_dir_cluster = bpb.BPB_RootClus;
     strcpy(cwd_name, "/");
     
+    fat32_init_open_files();
+
     return true;
 }
 
@@ -571,4 +576,332 @@ bool fat32_creat(const char *filename) {
     new_entry.DIR_FileSize = 0;
 
     return fat32_write_dir_entry(current_dir_cluster, &new_entry);
+}
+
+// Initialize open files array
+void fat32_init_open_files(void) {
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        open_files[i].in_use = 0;
+        memset(open_files[i].filename, 0, sizeof(open_files[i].filename));
+        memset(open_files[i].path, 0, sizeof(open_files[i].path));
+    }
+}
+
+// Helper: Check if file is already open
+static bool is_file_open(const char *filename) {
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (open_files[i].in_use && strcasecmp(open_files[i].filename, filename) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Helper: Find open file by name
+static OpenFile* find_open_file(const char *filename) {
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (open_files[i].in_use && strcasecmp(open_files[i].filename, filename) == 0) {
+            return &open_files[i];
+        }
+    }
+    return NULL;
+}
+
+// Helper: Parse mode string
+static FileMode parse_mode(const char *mode_str) {
+    if (strcmp(mode_str, "-r") == 0) {
+        return MODE_READ;
+    } else if (strcmp(mode_str, "-w") == 0) {
+        return MODE_WRITE;
+    } else if (strcmp(mode_str, "-rw") == 0 || strcmp(mode_str, "-wr") == 0) {
+        return MODE_READ_WRITE;
+    }
+    return 0;
+}
+
+// Helper: Convert mode to string for display
+static const char* mode_to_string(FileMode mode) {
+    switch (mode) {
+        case MODE_READ: return "r";
+        case MODE_WRITE: return "w";
+        case MODE_READ_WRITE: return "rw";
+        default: return "?";
+    }
+}
+
+// Helper: Get display name from FAT32 name (removes trailing spaces)
+static void get_display_name(const uint8_t *fat_name, char *out) {
+    memcpy(out, fat_name, 11);
+    out[11] = '\0';
+    
+    // Remove trailing spaces
+    for (int i = 10; i >= 0; i--) {
+        if (out[i] == ' ')
+            out[i] = '\0';
+        else
+            break;
+    }
+}
+
+// open [FILENAME] [FLAGS]
+// Opens a file for reading/writing
+bool fat32_open(const char *filename, const char *flags) {
+    // Parse mode
+    FileMode mode = parse_mode(flags);
+    if (mode == 0) {
+        fprintf(stderr, "Error: Invalid mode '%s'. Use -r, -w, -rw, or -wr\n", flags);
+        return false;
+    }
+    
+    // Check if already open
+    if (is_file_open(filename)) {
+        fprintf(stderr, "Error: File '%s' is already open\n", filename);
+        return false;
+    }
+    
+    // Find file in current directory
+    DirEntry_t *entry = fat32_find_entry(current_dir_cluster, filename);
+    if (!entry) {
+        fprintf(stderr, "Error: File '%s' does not exist\n", filename);
+        return false;
+    }
+    
+    // Check if it's a directory
+    if (entry->DIR_Attr & ATTR_DIRECTORY) {
+        fprintf(stderr, "Error: '%s' is a directory\n", filename);
+        return false;
+    }
+    
+    // Find empty slot in open files array
+    int slot = -1;
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (!open_files[i].in_use) {
+            slot = i;
+            break;
+        }
+    }
+    
+    if (slot == -1) {
+        fprintf(stderr, "Error: Maximum number of open files reached\n");
+        return false;
+    }
+    
+    // Store file information in the open file slot
+    open_files[slot].in_use = 1;
+    get_display_name(entry->DIR_Name, open_files[slot].filename);
+    open_files[slot].mode = mode;
+    open_files[slot].offset = 0;  // Initialize offset at 0
+    open_files[slot].size = entry->DIR_FileSize;
+    open_files[slot].first_cluster = fat32_get_first_cluster(entry);
+    strncpy(open_files[slot].path, cwd_name, sizeof(open_files[slot].path) - 1);
+    
+    return true;
+}
+
+// close [FILENAME]
+// Closes an opened file
+bool fat32_close(const char *filename) {
+    // Find file in open files array
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (open_files[i].in_use && strcasecmp(open_files[i].filename, filename) == 0) {
+            // Close the file by marking slot as unused
+            open_files[i].in_use = 0;
+            memset(&open_files[i], 0, sizeof(OpenFile));
+            return true;
+        }
+    }
+    
+    fprintf(stderr, "Error: File '%s' is not open\n", filename);
+    return false;
+}
+
+// lsof
+// Lists all opened files
+void fat32_lsof(void) {
+    int count = 0;
+    
+    // Count open files
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (open_files[i].in_use) {
+            count++;
+        }
+    }
+    
+    if (count == 0) {
+        printf("No files are currently open\n");
+        return;
+    }
+    
+    // Print header
+    printf("%-5s %-12s %-6s %-10s %s\n", 
+           "Index", "Filename", "Mode", "Offset", "Path");
+    printf("-------------------------------------------------------------\n");
+    
+    // List all open files
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (open_files[i].in_use) {
+            printf("%-5d %-12s %-6s %-10u %s\n",
+                   i,
+                   open_files[i].filename,
+                   mode_to_string(open_files[i].mode),
+                   open_files[i].offset,
+                   open_files[i].path);
+        }
+    }
+}
+
+// lseek [FILENAME] [OFFSET]
+// Sets the offset for a file
+bool fat32_lseek(const char *filename, uint32_t offset) {
+    OpenFile *file = find_open_file(filename);
+    if (!file) {
+        fprintf(stderr, "Error: File '%s' is not open\n", filename);
+        return false;
+    }
+    
+    if (offset > file->size) {
+        fprintf(stderr, "Error: Offset %u is larger than file size %u\n", 
+                offset, file->size);
+        return false;
+    }
+    
+    file->offset = offset;
+    return true;
+}
+
+// Helper function: Read data from file starting at given offset
+static bool read_file_data(uint32_t first_cluster, uint32_t offset, 
+                          uint8_t *buffer, uint32_t size) {
+    if (first_cluster == 0) {
+        // Empty file (no clusters allocated)
+        return true;
+    }
+    
+    uint32_t bytes_per_cluster = bpb.BPB_BytsPerSec * bpb.BPB_SecPerClus;
+    uint32_t current_cluster = first_cluster;
+    uint32_t bytes_read = 0;
+    
+    // Skip to the cluster containing the offset
+    uint32_t skip_bytes = offset;
+    while (skip_bytes >= bytes_per_cluster && current_cluster < FAT32_EOC) {
+        current_cluster = fat32_get_next_cluster(current_cluster);
+        skip_bytes -= bytes_per_cluster;
+    }
+    
+    // Check if we went past end of file
+    if (current_cluster >= FAT32_EOC) {
+        return true; // Reached EOF while skipping
+    }
+    
+    // Allocate buffer for reading clusters
+    uint32_t cluster_buffer_size = bytes_per_cluster;
+    uint8_t *cluster_buffer = malloc(cluster_buffer_size);
+    if (!cluster_buffer) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        return false;
+    }
+    
+    // Read data from clusters
+    while (bytes_read < size && current_cluster < FAT32_EOC) {
+        // Read the entire cluster
+        if (!fat32_read_cluster(current_cluster, cluster_buffer)) {
+            free(cluster_buffer);
+            return false;
+        }
+        
+        // Calculate how much to copy from this cluster
+        uint32_t to_read = bytes_per_cluster - skip_bytes;
+        if (bytes_read + to_read > size) {
+            to_read = size - bytes_read;
+        }
+        
+        // Copy data to output buffer
+        memcpy(buffer + bytes_read, cluster_buffer + skip_bytes, to_read);
+        bytes_read += to_read;
+        
+        // Move to next cluster
+        current_cluster = fat32_get_next_cluster(current_cluster);
+        skip_bytes = 0; // Only skip bytes in first cluster
+    }
+    
+    free(cluster_buffer);
+    return true;
+}
+
+// read [FILENAME] [SIZE]
+// Reads data from a file
+bool fat32_read(const char *filename, uint32_t size) {
+    // Check if file exists
+    DirEntry_t *entry = fat32_find_entry(current_dir_cluster, filename);
+    if (!entry) {
+        fprintf(stderr, "Error: File '%s' does not exist\n", filename);
+        return false;
+    }
+    
+    // Check if it's a directory
+    if (entry->DIR_Attr & ATTR_DIRECTORY) {
+        fprintf(stderr, "Error: '%s' is a directory\n", filename);
+        return false;
+    }
+    
+    // Find open file
+    OpenFile *file = find_open_file(filename);
+    if (!file) {
+        fprintf(stderr, "Error: File '%s' is not open\n", filename);
+        return false;
+    }
+    
+    // Check read permission
+    if (file->mode != MODE_READ && file->mode != MODE_READ_WRITE) {
+        fprintf(stderr, "Error: File '%s' is not open for reading\n", filename);
+        return false;
+    }
+    
+    // Determine actual bytes to read
+    uint32_t bytes_to_read = size;
+    if (file->offset + bytes_to_read > file->size) {
+        bytes_to_read = file->size - file->offset;
+    }
+    
+    if (bytes_to_read == 0) {
+        printf("(end of file)\n");
+        return true;
+    }
+    
+    // Allocate buffer for reading
+    uint8_t *buffer = malloc(bytes_to_read);
+    if (!buffer) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        return false;
+    }
+    
+    // Read data from clusters
+    if (!read_file_data(file->first_cluster, file->offset, buffer, bytes_to_read)) {
+        free(buffer);
+        return false;
+    }
+    
+    // Print the data (handle non-printable characters)
+    for (uint32_t i = 0; i < bytes_to_read; i++) {
+        if (buffer[i] >= 32 && buffer[i] <= 126) {
+            putchar(buffer[i]);
+        } else if (buffer[i] == '\n') {
+            putchar('\n');
+        } else if (buffer[i] == '\r') {
+            // Skip carriage return
+        } else if (buffer[i] == '\t') {
+            putchar('\t');
+        } else {
+            // Non-printable character - print as dot
+            putchar('.');
+        }
+    }
+    printf("\n");
+    
+    free(buffer);
+    
+    // Update offset
+    file->offset += bytes_to_read;
+    
+    return true;
 }
