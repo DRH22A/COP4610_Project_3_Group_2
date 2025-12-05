@@ -1,4 +1,3 @@
-//shell.c
 #include "lexer.h"
 #include <stdio.h>
 #include <string.h>
