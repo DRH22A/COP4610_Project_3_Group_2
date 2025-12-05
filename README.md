@@ -19,7 +19,7 @@ Our project also possess a comprehensive understanding of the fundamental comman
 - **Assigned to**: Daniel Halterman
 
 ### Part 3: Create
-- **Responsibilities**: [Description]
+- **Responsibilities**: Implemented the mkdir cmd and the creat cmd
 - **Assigned to**: Caleb Dindinger
 
 ### Part 4: Read
