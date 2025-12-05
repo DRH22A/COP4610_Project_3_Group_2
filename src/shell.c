@@ -66,6 +66,24 @@ void shell_start()
 				} 
 			}
 		}
+        else if (strcmp(cmd, "rm") == 0) {
+            if (tokens->size < 2) {
+                fprintf(stderr, "Error: must use a file name with command rm\n");
+            } else {
+                if (!fat32_rm(tokens->items[1])) {
+                    fprintf(stderr, "rm failed\n");
+                }
+            }
+        }
+        else if (strcmp(cmd, "rmdir") == 0) {
+            if (tokens->size < 2) {
+                fprintf(stderr, "Error: must use a directory name with command rmdir\n");
+            } else {
+                if (!fat32_rmdir(tokens->items[1])) {
+                    fprintf(stderr, "rmdir failed\n");
+                }
+            }
+        }
         else {
             // Unknown commands
             printf("Unknown command: %s\n", cmd);

@@ -6,7 +6,7 @@ Our project also possess a comprehensive understanding of the fundamental comman
 
 ## Group Members
 - **Daniel Halterman**: drh22a@fsu.edu
-- **Jane Smith**: js19@fsu.edu
+- **Ryan Kurfirst**: rsk22a@fsu.edu
 - **Alex Brown**: ab19@fsu.edu
 ## Division of Labor
 
@@ -28,11 +28,11 @@ Our project also possess a comprehensive understanding of the fundamental comman
 
 ### Part 5: Update
 - **Responsibilities**: [Description]
-- **Assigned to**: Alex Brown, Jane Smith
+- **Assigned to**: Ryan Kurfirst
 
 ### Part 6: Delete
 - **Responsibilities**: [Description]
-- **Assigned to**: Jane Smith
+- **Assigned to**: Ryan Kurfirst
 
 ### Extra Credit
 - **Responsibilities**: [Description]
