@@ -8,7 +8,8 @@ Our project also possess a comprehensive understanding of the fundamental comman
 - **Daniel Halterman**: drh22a@fsu.edu
 - **Ryan Kurfirst**: rsk22a@fsu.edu
 - **Caleb Dindinger**: ab19@fsu.edu
-- **Alejandro Valdes**: av22q@fsu.edu 
+- **Alejandro Valdes**: av22q@fsu.edu
+
 ## Division of Labor
 
 ### Part 1: Mounting the Image
@@ -24,20 +25,16 @@ Our project also possess a comprehensive understanding of the fundamental comman
 - **Assigned to**: Caleb Dindinger
 
 ### Part 4: Read
-- **Responsibilities**: [Description]
+- **Responsibilities**: Implemented commands for opening, closing, and reading files. Also implemented listing open files, changing the read/write position, and displaying file contents.
 - **Assigned to**: Alejandro Valdes
 
 ### Part 5: Update
-- **Responsibilities**: [Description]
+- **Responsibilities**: Implemented writing text to files. This includes automatically expanding the file when needed. Also created the mv command for files and directories.
 - **Assigned to**: Ryan Kurfirst
 
 ### Part 6: Delete
-- **Responsibilities**: [Description]
+- **Responsibilities**: Implemented commands for removing directories. Also made sure files are freed correctly and that directories are only removed when they are empty.
 - **Assigned to**: Ryan Kurfirst
-
-### Extra Credit
-- **Responsibilities**: [Description]
-- **Assigned to**: Alex Brown
 
 ## File Listing
 ```
@@ -53,7 +50,14 @@ filesys/
 │ ├── fat32.h
 │ ├── lexer.h
 │ └── shell.h
-│
+├── bin/         # Used to store filesys (Not included on Github)
+│ ├── filesys
+├── obj/         # Holds all of the object files (Not included on Github)
+│ ├── fat32.o
+│ ├── lexer.o
+│ ├── main.o
+│ └── shell.o
+├── fat32.img    # The FAT32 image file (Not included on Github)
 ├── README.md
 └── Makefile
 ```
@@ -124,7 +128,7 @@ ls XXXXX
 
 
 ### Requirements
-- **Compiler**: e.g., `gcc` for C/C++
+- **Compiler**: e.g., `gcc` for C
 
 ### Compilation
 For a C/C++ example:
@@ -137,11 +141,6 @@ This will build the executable in ...
 make run
 ```
 This will run the program ...
-
-## Bugs
-- **Bug 1**: This is bug 1.
-- **Bug 2**: This is bug 2.
-- **Bug 3**: This is bug 3.
 
 ## Considerations
 [Description]
