@@ -10,7 +10,7 @@ void shell_start()
     while (1) {
 
         // Prints the shell prompt using the loaded FAT32 image filename and the current working directory name
-        printf("%s/%s> ", fat32_get_image_name(), fat32_get_cwd_name());
+        printf("%s%s> ", fat32_get_image_name(), fat32_get_cwd_name());
         fflush(stdout);
         
         // Reads the input from the user

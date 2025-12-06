@@ -358,71 +358,80 @@ void fat32_ls()
     free(cluster_buffer);
 }
 
-// cd command
+// Helper to go up one directory in cwd_name
+void trim_last_dir(char *cwd) {
+    size_t len = strlen(cwd);
+    if (len <= 1) return; // already at root
+
+    // Remove trailing slash if present
+    if (cwd[len - 1] == '/') cwd[len - 1] = '\0';
+
+    // Find last slash
+    char *last_slash = strrchr(cwd, '/');
+    if (last_slash) {
+        if (last_slash == cwd) {
+            // back to root
+            cwd[1] = '\0';
+        } else {
+            *(last_slash + 1) = '\0';
+        }
+    }
+}
+
 bool fat32_cd(const char *dirname)
 {
-    // Handles root directory
     if (strcmp(dirname, "/") == 0) {
         current_dir_cluster = bpb.BPB_RootClus;
         strcpy(cwd_name, "/");
         return true;
     }
 
-    // Handles current directory "."
     if (strcmp(dirname, ".") == 0) {
-        // Do nothing, stay in the current directory
-        return true;
+        return true; // stay in current directory
     }
 
-    // Handles parent directory ".."
     if (strcmp(dirname, "..") == 0) {
-        // If already at root, stay at root
         if (current_dir_cluster == bpb.BPB_RootClus) {
             strcpy(cwd_name, "/");
             return true;
         }
 
-        // Find parent directory cluster from current ".." entry
         DirEntry_t *dotdot_entry = fat32_find_entry(current_dir_cluster, "..");
         if (!dotdot_entry) {
             fprintf(stderr, "Error: Parent directory not found\n");
             return false;
         }
-        current_dir_cluster = fat32_get_first_cluster(dotdot_entry);
 
-        // Update cwd_name
-        char *last_slash = strrchr(cwd_name, '/');
-        if (last_slash && last_slash != cwd_name) {
-            *last_slash = '\0';
-        } else {
-            strcpy(cwd_name, "/");
-        }
+        uint32_t parent_cluster = fat32_get_first_cluster(dotdot_entry);
+        if (parent_cluster == 0) parent_cluster = bpb.BPB_RootClus;
+
+        current_dir_cluster = parent_cluster;
+        trim_last_dir(cwd_name);
         return true;
     }
 
-    // Find the directory entry for other names
+    // Normal directory
     DirEntry_t *entry = fat32_find_entry(current_dir_cluster, dirname);
     if (!entry) {
         fprintf(stderr, "Error: Directory '%s' not found\n", dirname);
         return false;
     }
-
     if (!(entry->DIR_Attr & ATTR_DIRECTORY)) {
         fprintf(stderr, "Error: '%s' is not a directory\n", dirname);
         return false;
     }
 
-    // Update current directory
     current_dir_cluster = fat32_get_first_cluster(entry);
 
-    // Update path string
-    if (strcmp(cwd_name, "/") != 0) {
-        strcat(cwd_name, "/");
-    }
+    // Append to cwd_name
+    size_t len = strlen(cwd_name);
+    if (len == 0 || cwd_name[len - 1] != '/') strcat(cwd_name, "/");
     strcat(cwd_name, dirname);
+    strcat(cwd_name, "/");
 
     return true;
 }
+
 
 // mkdir and creat functions (part3)
 
