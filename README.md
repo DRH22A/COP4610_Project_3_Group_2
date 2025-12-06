@@ -8,6 +8,7 @@ Our project also possess a comprehensive understanding of the fundamental comman
 - **Daniel Halterman**: drh22a@fsu.edu
 - **Ryan Kurfirst**: rsk22a@fsu.edu
 - **Caleb Dindinger**: ab19@fsu.edu
+- **Alejandro Valdes**: av22q@fsu.edu 
 ## Division of Labor
 
 ### Part 1: Mounting the Image
@@ -24,7 +25,7 @@ Our project also possess a comprehensive understanding of the fundamental comman
 
 ### Part 4: Read
 - **Responsibilities**: [Description]
-- **Assigned to**: Alex Brown, Jane Smith
+- **Assigned to**: Alejandro Valdes
 
 ### Part 5: Update
 - **Responsibilities**: [Description]
